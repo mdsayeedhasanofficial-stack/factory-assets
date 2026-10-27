@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ফ্যাক্টরি অ্যাসেট ও পার্টস ম্যানেজমেন্ট</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body class="bg-gray-100 font-sans min-h-screen p-2 md:p-6">
+
+    <div class="container mx-auto max-w-6xl bg-white shadow-lg rounded-xl p-4 md:p-6">
+        <!-- Header -->
+        <div class="bg-blue-700 text-white p-4 rounded-lg shadow mb-6 flex flex-col md:flex-row justify-between items-center gap-4">
+            <h1 class="text-xl md:text-2xl font-bold text-center md:text-left">⚙️ ফ্যাক্টরি মেশিনারি ও পার্টস ম্যানেজমেন্ট</h1>
+            <div class="flex flex-wrap gap-2 justify-center">
+                <input type="file" id="excelFile" accept=".xlsx, .xls, .csv" class="hidden" onchange="importExcel(event)">
+                <button onclick="document.getElementById('excelFile').click()" class="bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded text-xs md:text-sm font-semibold shadow cursor-pointer">📂 এক্সেল ফাইল ইমপোর্ট</button>
+                <button onclick="exportToExcel()" class="bg-amber-600 hover:bg-amber-700 text-white px-3 py-2 rounded text-xs md:text-sm font-semibold shadow cursor-pointer">📥 এক্সেল ডাউনলোড</button>
+            </div>
+        </div>
+
+        <!-- Add New Form -->
+        <div class="bg-gray-50 border border-gray-200 p-4 rounded-lg shadow-sm mb-6">
+            <h2 id="formTitle" class="text-base font-semibold mb-3 text-gray-700">➕ নতুন মেশিন বা পার্টস যুক্ত করুন</h2>
+            <form id="itemForm" onsubmit="addItem(event)" class="grid grid-cols-1 md:grid-cols-4 gap-3">
+                <input type="text" id="assetId" placeholder="অ্যাসেট আইডি (যেমন: CUT-01)" required class="border bg-white p-2.5 rounded text-sm focus:outline-blue-600">
+                <input type="text" id="itemName" placeholder="মেশিন বা পার্টসের নাম" required class="border bg-white p-2.5 rounded text-sm focus:outline-blue-600">
+                <input type="text" id="location" placeholder="লোকেশন / ফ্লোর" required class="border bg-white p-2.5 rounded text-sm focus:outline-blue-600">
+                <input type="text" id="specs" placeholder="টেকনিক্যাল তথ্য / স্পেসিফিকেশন" required class="border bg-white p-2.5 rounded text-sm focus:outline-blue-600">
+                <input type="text" id="status" placeholder="অবস্থা (যেমন: রানিং / স্টক)" required class="border bg-white p-2.5 rounded text-sm focus:outline-blue-600 md:col-span-3">
+                <button type="submit" id="saveBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold p-2.5 rounded text-sm shadow cursor-pointer">সংরক্ষণ করুন</button>
+            </form>
+        </div>
+
+        <!-- Search & Table -->
+        <div>
+            <div class="mb-4 flex flex-col md:flex-row justify-between items-center gap-3">
+                <input type="text" id="searchInput" placeholder="🔍 যেকোনো তথ্য দিয়ে খুঁজুন..." onkeyup="searchTable()" class="border bg-white p-2.5 rounded text-sm w-full md:w-1/3 focus:outline-blue-600">
+                <span id="totalCount" class="text-gray-600 text-sm font-semibold">মোট আইটেম: ০</span>
+            </div>
+
+            <div class="overflow-x-auto border border-gray-200 rounded-lg">
+                <table class="w-full border-collapse text-left text-sm">
+                    <thead>
+                        <tr class="bg-gray-100 text-gray-700 border-b">
+                            <th class="p-3 border-r">অ্যাসেট আইডি</th>
+                            <th class="p-3 border-r">নাম ও মডেল</th>
+                            <th class="p-3 border-r">লোকেশন</th>
+                            <th class="p-3 border-r">স্পেসিফিকেশন</th>
+                            <th class="p-3 border-r">অবস্থা</th>
+                            <th class="p-3 text-center">কার্যক্রম</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let items = [];
+        try { items = JSON.parse(localStorage.getItem('factoryItems')) || []; } catch (e) { items = []; }
+        let editIndex = -1;
+
+        const save = () => { try { localStorage.setItem('factoryItems', JSON.stringify(items)); } catch (e) {} };
+        const BD = '০১২৩৪৫৬৭৮৯';
+        const bn = n => String(n).replace(/\d/g, d => BD[d]);
+        const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+        function renderTable(dataToRender = items) {
+            const tbody = document.getElementById('tableBody');
+            document.getElementById('totalCount').innerText = `মোট আইটেম: ${bn(dataToRender.length)}`;
+
+            if (dataToRender.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="6" class="text-center p-6 text-gray-400">কোনো ডাটা পাওয়া যায়নি। নতুন এন্ট্রি করুন অথবা এক্সেল ফাইল ইমপোর্ট করুন।</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = dataToRender.map(item => {
+                const i = items.indexOf(item);
+                return `
+                    <tr class="hover:bg-gray-50 border-b">
+                        <td class="p-3 border-r font-semibold">${esc(item.assetId)}</td>
+                        <td class="p-3 border-r">${esc(item.itemName)}</td>
+                        <td class="p-3 border-r">${esc(item.location)}</td>
+                        <td class="p-3 border-r">${esc(item.specs)}</td>
+                        <td class="p-3 border-r">${esc(item.status)}</td>
+                        <td class="p-3 text-center whitespace-nowrap">
+                            <button onclick="editItem(${i})" class="text-blue-600 font-semibold px-2 cursor-pointer">এডিট</button>
+                            <button onclick="deleteItem(${i})" class="text-red-600 font-semibold px-2 cursor-pointer">মুছুন</button>
+                        </td>
+                    </tr>`;
+            }).join('');
+        }
+
+        function addItem(e) {
+            e.preventDefault();
+            const obj = {
+                assetId: document.getElementById('assetId').value.trim(),
+                itemName: document.getElementById('itemName').value.trim(),
+                location: document.getElementById('location').value.trim(),
+                specs: document.getElementById('specs').value.trim(),
+                status: document.getElementById('status').value.trim()
+            };
+            if (editIndex >= 0) items[editIndex] = obj; else items.push(obj);
+            resetForm();
+            save();
+            document.getElementById('searchInput').value = '';
+            renderTable();
+        }
+
+        function resetForm() {
+            editIndex = -1;
+            document.getElementById('itemForm').reset();
+            document.getElementById('saveBtn').innerText = 'সংরক্ষণ করুন';
+            document.getElementById('formTitle').innerText = '➕ নতুন মেশিন বা পার্টস যুক্ত করুন';
+        }
+
+        function editItem(i) {
+            const it = items[i];
+            if (!it) return;
+            editIndex = i;
+            document.getElementById('assetId').value = it.assetId;
+            document.getElementById('itemName').value = it.itemName;
+            document.getElementById('location').value = it.location;
+            document.getElementById('specs').value = it.specs;
+            document.getElementById('status').value = it.status;
+            document.getElementById('saveBtn').innerText = 'আপডেট করুন';
+            document.getElementById('formTitle').innerText = '✏️ তথ্য সম্পাদনা করুন';
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function deleteItem(i) {
+            if (!confirm('এই আইটেমটি মুছে ফেলবেন?')) return;
+            items.splice(i, 1);
+            if (editIndex === i) resetForm();
+            save();
+            searchTable();
+        }
+
+        function searchTable() {
+            const q = document.getElementById('searchInput').value.trim().toLowerCase();
+            if (!q) return renderTable();
+            renderTable(items.filter(it => Object.values(it).join(' ').toLowerCase().includes(q)));
+        }
+
+        const KEYS = {
+            assetId: ['অ্যাসেট আইডি', 'assetId', 'Asset ID', 'ID'],
+            itemName: ['নাম ও মডেল', 'itemName', 'Name'],
+            location: ['লোকেশন', 'location', 'Location'],
+            specs: ['স্পেসিফিকেশন', 'specs', 'Specification'],
+            status: ['অবস্থা', 'status', 'Status']
+        };
+        const pick = (row, keys) => { for (const k of keys) if (row[k] !== undefined) return String(row[k]).trim(); return ''; };
+
+        function importExcel(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = e => {
+                try {
+                    const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+                    const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' });
+                    const added = rows.map(r => ({
+                        assetId: pick(r, KEYS.assetId), itemName: pick(r, KEYS.itemName),
+                        location: pick(r, KEYS.location), specs: pick(r, KEYS.specs), status: pick(r, KEYS.status)
+                    })).filter(o => Object.values(o).some(v => v));
+                    items = items.concat(added);
+                    save();
+                    renderTable();
+                    alert(`${bn(added.length)}টি আইটেম ইমপোর্ট হয়েছে`);
+                } catch (err) {
+                    alert('ফাইলটি পড়া যায়নি। সঠিক এক্সেল ফাইল দিন।');
+                }
+                event.target.value = '';
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        function exportToExcel() {
+            if (!items.length) { alert('এক্সপোর্ট করার মতো কোনো ডাটা নেই'); return; }
+            const rows = items.map(it => ({
+                'অ্যাসেট আইডি': it.assetId, 'নাম ও মডেল': it.itemName, 'লোকেশন': it.location,
+                'স্পেসিফিকেশন': it.specs, 'অবস্থা': it.status
+            }));
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Assets');
+            XLSX.writeFile(wb, 'factory-assets.xlsx');
+        }
+
+        renderTable();
+    </script>
+</body>
+</html>
